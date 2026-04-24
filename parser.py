@@ -65,7 +65,6 @@ GIFTS = [
     ("ion-gem", "Ion Gem"),
     ("ionic-dryer", "Ionic Dryer"),
     ("jelly-bunny", "Jelly Bunny"),
-    ("jester-hat", "Jester Hat"),
     ("jingle-bells", "Jingle Bells"),
     ("jolly-chimp", "Jolly Chimp"),
     ("joyful-bundle", "Joyful Bundle"),
@@ -86,10 +85,8 @@ GIFTS = [
     ("nail-bracelet", "Nail Bracelet"),
     ("neko-helmet", "Neko Helmet"),
     ("bear-new-year", "New Year's Bear"),
-    ("party-sparkler", "Party Sparkler"),
     ("pen", "Pen"),
     ("perfume-bottle", "Perfume Bottle"),
-    ("pet-snake", "Pet Snake"),
     ("pink-flamingo", "Pink Flamingo"),
     ("plush-pepe", "Plush Pepe"),
     ("precious-peach", "Precious Peach"),
@@ -97,7 +94,6 @@ GIFTS = [
     ("record-player", "Record Player"),
     ("red-star", "Red Star"),
     ("resistance-dog", "Resistance Dog"),
-    ("restless-jar", "Restless Jar"),
     ("roses", "Roses"),
     ("sakura-flower", "Sakura Flower"),
     ("sandcastle", "Sandcastle"),
@@ -117,7 +113,6 @@ GIFTS = [
     ("statue-of-liberty", "Statue of Liberty"),
     ("surfboard", "Surfboard"),
     ("swiss-watch", "Swiss Watch"),
-    ("tama-gadget", "Tama Gadget"),
     ("plane", "Telegram Pin"),
     ("top-hat", "Top Hat"),
     ("torch-freedom", "Torch of Freedom"),
@@ -298,33 +293,30 @@ async def discover_gift_ids(tg: TelegramClient):
 
     found_local: dict[str, int] = {}
     
-    # Создаем маппинг названий подарков для быстрого поиска
-    gift_names = {name.lower(): key for key, name in GIFTS}
-    
+    # Маппинг display_name (lower) -> key для быстрого точного поиска
+    name_to_key = {name.lower(): key for key, name in GIFTS}
+    # Маппинг key (с дефисами заменёнными на пробелы) -> key
+    slug_to_key = {key.replace("-", " "): key for key, _name in GIFTS}
+
     for gift in stars.gifts:
         gift_id = gift.id
         title = getattr(gift, "title", None)
-        
-        # Пропускаем если title пуст
+
         if not title:
             continue
-            
-        title_lower = title.lower()
-        
-        # Ищем совпадение по названию
-        for key, name in GIFTS:
-            if key in found_local:
-                continue
-            
-            name_lower = name.lower()
-            # Проверяем разные варианты совпадения
-            if (key in title_lower or 
-                name_lower in title_lower or 
-                title_lower in name_lower or
-                key.replace("-", " ") in title_lower.replace("-", " ")):
-                found_local[key] = gift_id
-                print(f"      ✅ Найден: {key} -> {title} (ID: {gift_id})")
-                logger.info(f"Found: {key} -> {title} (ID: {gift_id})")
+
+        title_lower = title.lower().strip()
+
+        # Точное совпадение по display_name
+        matched_key = name_to_key.get(title_lower)
+        # Точное совпадение по slug-key (с пробелами вместо дефисов)
+        if not matched_key:
+            matched_key = slug_to_key.get(title_lower)
+
+        if matched_key and matched_key not in found_local:
+            found_local[matched_key] = gift_id
+            print(f"      ✅ Найден: {matched_key} -> {title} (ID: {gift_id})")
+            logger.info(f"Found: {matched_key} -> {title} (ID: {gift_id})")
 
     if found_local:
         async with gift_map_lock:
@@ -499,22 +491,12 @@ async def worker():
                 if not slug:
                     continue
 
-                slug_l = slug.lower()
-                title = getattr(item, "title", "").lower()
-                
-                # Более точное совпадение - проверяем начало slug или точное совпадение
-                # Например: "pen" должен совпадать с "Pen-123" но не с "MoonPendant-123"
-                slug_parts = slug_l.split("-")
-                key_match = False
-                
-                # Проверяем первую часть slug (до первого дефиса)
-                if slug_parts and key in slug_parts[0]:
-                    key_match = True
-                # Или проверяем точное совпадение в title
-                elif key in title or key.replace("-", " ") in title:
-                    key_match = True
-                
-                if not key_match:
+                item_title = getattr(item, "title", "").lower().strip()
+                key_normalized = key.replace("-", " ")
+                name_lower = name.lower()
+
+                # Точное совпадение: title == display_name ИЛИ title == key (с пробелами)
+                if item_title != name_lower and item_title != key_normalized:
                     continue
 
                 async with seen_lock:
@@ -524,61 +506,37 @@ async def worker():
 
                 # Получаем информацию о цене (Stars и TON)
                 resell_amount = getattr(item, "resell_amount", None)
-                price_stars = "N/A"
-                price_ton = "N/A"
-                
-                # resell_amount это список объектов StarsAmount/StarsTonAmount
+                price_stars = None
+                price_ton = None
+
                 if resell_amount and isinstance(resell_amount, list):
-                    # Если в списке 2 элемента - это Stars и TON
-                    # Если 1 элемент - это только Stars
-                    
-                    if len(resell_amount) == 2:
-                        # Два варианта платежа - Stars и TON
-                        for amount_obj in resell_amount:
-                            obj_type = type(amount_obj).__name__
-                            amount = getattr(amount_obj, "amount", None)
-                            
-                            if amount is None:
-                                continue
-                            
-                            # StarsAmount - цена в Stars
-                            if obj_type == "StarsAmount":
-                                price_stars = str(amount)
-                            
-                            # StarsTonAmount - цена в TON (в наноTON)
-                            elif obj_type == "StarsTonAmount":
-                                ton_value = amount / 1000000000
-                                price_ton = f"{ton_value:.2f}"
-                    
-                    elif len(resell_amount) == 1:
-                        # Только один вариант платежа
-                        amount_obj = resell_amount[0]
+                    for amount_obj in resell_amount:
                         obj_type = type(amount_obj).__name__
                         amount = getattr(amount_obj, "amount", None)
-                        
-                        if amount is not None:
-                            if obj_type == "StarsAmount":
-                                price_stars = str(amount)
-                            elif obj_type == "StarsTonAmount":
-                                # Если только один элемент и это StarsTonAmount
-                                # Проверяем размер - если > 1 млрд, это TON, иначе Stars
-                                if amount > 1000000000:
-                                    ton_value = amount / 1000000000
-                                    price_ton = f"{ton_value:.2f}"
-                                else:
-                                    price_stars = str(amount)
-                
+                        if amount is None:
+                            continue
+
+                        if obj_type == "StarsAmount":
+                            price_stars = int(amount)
+                        elif obj_type == "StarsTonAmount":
+                            price_ton = amount / 1_000_000_000
+
+                elif resell_amount and not isinstance(resell_amount, list):
+                    obj_type = type(resell_amount).__name__
+                    amount = getattr(resell_amount, "amount", None)
+                    if amount is not None:
+                        if obj_type == "StarsAmount":
+                            price_stars = int(amount)
+                        elif obj_type == "StarsTonAmount":
+                            price_ton = amount / 1_000_000_000
+
                 # Формируем строку цены
-                price_str = ""
-                if price_stars != "N/A" and price_ton != "N/A":
-                    # Оба варианта платежа
-                    price_str = f"{price_stars} ⭐ / {price_ton} TON"
-                elif price_stars != "N/A":
-                    # Только Stars
+                if price_stars is not None and price_ton is not None:
+                    price_str = f"{price_stars} ⭐ / {price_ton:.2f} TON"
+                elif price_stars is not None:
                     price_str = f"{price_stars} ⭐"
-                elif price_ton != "N/A":
-                    # Только TON
-                    price_str = f"{price_ton} TON"
+                elif price_ton is not None:
+                    price_str = f"{price_ton:.2f} TON"
                 else:
                     price_str = "N/A"
                 
