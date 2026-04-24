@@ -65,7 +65,6 @@ GIFTS = [
     ("ion-gem", "Ion Gem"),
     ("ionic-dryer", "Ionic Dryer"),
     ("jelly-bunny", "Jelly Bunny"),
-    ("jester-hat", "Jester Hat"),
     ("jingle-bells", "Jingle Bells"),
     ("jolly-chimp", "Jolly Chimp"),
     ("joyful-bundle", "Joyful Bundle"),
@@ -86,10 +85,8 @@ GIFTS = [
     ("nail-bracelet", "Nail Bracelet"),
     ("neko-helmet", "Neko Helmet"),
     ("bear-new-year", "New Year's Bear"),
-    ("party-sparkler", "Party Sparkler"),
     ("pen", "Pen"),
     ("perfume-bottle", "Perfume Bottle"),
-    ("pet-snake", "Pet Snake"),
     ("pink-flamingo", "Pink Flamingo"),
     ("plush-pepe", "Plush Pepe"),
     ("precious-peach", "Precious Peach"),
@@ -97,7 +94,6 @@ GIFTS = [
     ("record-player", "Record Player"),
     ("red-star", "Red Star"),
     ("resistance-dog", "Resistance Dog"),
-    ("restless-jar", "Restless Jar"),
     ("roses", "Roses"),
     ("sakura-flower", "Sakura Flower"),
     ("sandcastle", "Sandcastle"),
@@ -117,7 +113,6 @@ GIFTS = [
     ("statue-of-liberty", "Statue of Liberty"),
     ("surfboard", "Surfboard"),
     ("swiss-watch", "Swiss Watch"),
-    ("tama-gadget", "Tama Gadget"),
     ("plane", "Telegram Pin"),
     ("top-hat", "Top Hat"),
     ("torch-freedom", "Torch of Freedom"),
@@ -524,61 +519,37 @@ async def worker():
 
                 # Получаем информацию о цене (Stars и TON)
                 resell_amount = getattr(item, "resell_amount", None)
-                price_stars = "N/A"
-                price_ton = "N/A"
-                
-                # resell_amount это список объектов StarsAmount/StarsTonAmount
+                price_stars = None
+                price_ton = None
+
                 if resell_amount and isinstance(resell_amount, list):
-                    # Если в списке 2 элемента - это Stars и TON
-                    # Если 1 элемент - это только Stars
-                    
-                    if len(resell_amount) == 2:
-                        # Два варианта платежа - Stars и TON
-                        for amount_obj in resell_amount:
-                            obj_type = type(amount_obj).__name__
-                            amount = getattr(amount_obj, "amount", None)
-                            
-                            if amount is None:
-                                continue
-                            
-                            # StarsAmount - цена в Stars
-                            if obj_type == "StarsAmount":
-                                price_stars = str(amount)
-                            
-                            # StarsTonAmount - цена в TON (в наноTON)
-                            elif obj_type == "StarsTonAmount":
-                                ton_value = amount / 1000000000
-                                price_ton = f"{ton_value:.2f}"
-                    
-                    elif len(resell_amount) == 1:
-                        # Только один вариант платежа
-                        amount_obj = resell_amount[0]
+                    for amount_obj in resell_amount:
                         obj_type = type(amount_obj).__name__
                         amount = getattr(amount_obj, "amount", None)
-                        
-                        if amount is not None:
-                            if obj_type == "StarsAmount":
-                                price_stars = str(amount)
-                            elif obj_type == "StarsTonAmount":
-                                # Если только один элемент и это StarsTonAmount
-                                # Проверяем размер - если > 1 млрд, это TON, иначе Stars
-                                if amount > 1000000000:
-                                    ton_value = amount / 1000000000
-                                    price_ton = f"{ton_value:.2f}"
-                                else:
-                                    price_stars = str(amount)
-                
+                        if amount is None:
+                            continue
+
+                        if obj_type == "StarsAmount":
+                            price_stars = int(amount)
+                        elif obj_type == "StarsTonAmount":
+                            price_ton = amount / 1_000_000_000
+
+                elif resell_amount and not isinstance(resell_amount, list):
+                    obj_type = type(resell_amount).__name__
+                    amount = getattr(resell_amount, "amount", None)
+                    if amount is not None:
+                        if obj_type == "StarsAmount":
+                            price_stars = int(amount)
+                        elif obj_type == "StarsTonAmount":
+                            price_ton = amount / 1_000_000_000
+
                 # Формируем строку цены
-                price_str = ""
-                if price_stars != "N/A" and price_ton != "N/A":
-                    # Оба варианта платежа
-                    price_str = f"{price_stars} ⭐ / {price_ton} TON"
-                elif price_stars != "N/A":
-                    # Только Stars
+                if price_stars is not None and price_ton is not None:
+                    price_str = f"{price_stars} ⭐ / {price_ton:.2f} TON"
+                elif price_stars is not None:
                     price_str = f"{price_stars} ⭐"
-                elif price_ton != "N/A":
-                    # Только TON
-                    price_str = f"{price_ton} TON"
+                elif price_ton is not None:
+                    price_str = f"{price_ton:.2f} TON"
                 else:
                     price_str = "N/A"
                 
