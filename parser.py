@@ -293,33 +293,30 @@ async def discover_gift_ids(tg: TelegramClient):
 
     found_local: dict[str, int] = {}
     
-    # Создаем маппинг названий подарков для быстрого поиска
-    gift_names = {name.lower(): key for key, name in GIFTS}
-    
+    # Маппинг display_name (lower) -> key для быстрого точного поиска
+    name_to_key = {name.lower(): key for key, name in GIFTS}
+    # Маппинг key (с дефисами заменёнными на пробелы) -> key
+    slug_to_key = {key.replace("-", " "): key for key, _name in GIFTS}
+
     for gift in stars.gifts:
         gift_id = gift.id
         title = getattr(gift, "title", None)
-        
-        # Пропускаем если title пуст
+
         if not title:
             continue
-            
-        title_lower = title.lower()
-        
-        # Ищем совпадение по названию
-        for key, name in GIFTS:
-            if key in found_local:
-                continue
-            
-            name_lower = name.lower()
-            # Проверяем разные варианты совпадения
-            if (key in title_lower or 
-                name_lower in title_lower or 
-                title_lower in name_lower or
-                key.replace("-", " ") in title_lower.replace("-", " ")):
-                found_local[key] = gift_id
-                print(f"      ✅ Найден: {key} -> {title} (ID: {gift_id})")
-                logger.info(f"Found: {key} -> {title} (ID: {gift_id})")
+
+        title_lower = title.lower().strip()
+
+        # Точное совпадение по display_name
+        matched_key = name_to_key.get(title_lower)
+        # Точное совпадение по slug-key (с пробелами вместо дефисов)
+        if not matched_key:
+            matched_key = slug_to_key.get(title_lower)
+
+        if matched_key and matched_key not in found_local:
+            found_local[matched_key] = gift_id
+            print(f"      ✅ Найден: {matched_key} -> {title} (ID: {gift_id})")
+            logger.info(f"Found: {matched_key} -> {title} (ID: {gift_id})")
 
     if found_local:
         async with gift_map_lock:
@@ -494,22 +491,12 @@ async def worker():
                 if not slug:
                     continue
 
-                slug_l = slug.lower()
-                title = getattr(item, "title", "").lower()
-                
-                # Более точное совпадение - проверяем начало slug или точное совпадение
-                # Например: "pen" должен совпадать с "Pen-123" но не с "MoonPendant-123"
-                slug_parts = slug_l.split("-")
-                key_match = False
-                
-                # Проверяем первую часть slug (до первого дефиса)
-                if slug_parts and key in slug_parts[0]:
-                    key_match = True
-                # Или проверяем точное совпадение в title
-                elif key in title or key.replace("-", " ") in title:
-                    key_match = True
-                
-                if not key_match:
+                item_title = getattr(item, "title", "").lower().strip()
+                key_normalized = key.replace("-", " ")
+                name_lower = name.lower()
+
+                # Точное совпадение: title == display_name ИЛИ title == key (с пробелами)
+                if item_title != name_lower and item_title != key_normalized:
                     continue
 
                 async with seen_lock:
